@@ -1,177 +1,175 @@
+import time
 from sage.base_app import BaseApp
-import math
+from .gaitphase import GaitPhase, STANCE
+from .FSA_algorithm import FootSagittalAngle
 
+# Constants for feedback state
+FEEDBACK_ON = 1
+FEEDBACK_OFF = 0
 
-#############################################################
-# Is Prime
-# This is a sample function to tell if a number is a prime number.     
-#############################################################
-def is_prime(second):
-    if second < 2:
-        return False
-    for i in range(2, int(second**0.5) + 1):
-        if second % i == 0:
-            return False
-    return True
 
 class Core(BaseApp):
+    ###########################################################
+    # INITIALIZE APP
+    ###########################################################
     def __init__(self, my_sage):
         BaseApp.__init__(self, my_sage, __file__)
-        self.iteration = 0
 
-        self.sensor_node = self.info["sensors"].index("sensor")
-        self.feedback_node = self.info["feedback"].index("feedback")
-        self.time_limit = self.config.get('stop_time')
+        # Constants
+        self.DATARATE = self.info["datarate"]
+        self.PULSE_LENGTH = float(self.config["pulse_length"])
+
+        # Node indices
+        self.NODENUM_SENSOR_FOOT_LEFT = self.info["sensors"].index("foot_left")
+        self.NODENUM_SENSOR_FOOT_RIGHT = self.info["sensors"].index("foot_right")
+        self.NODENUM_FEEDBACK_SHANK_LEFT = self.info["feedback"].index("shank_left")
+        self.NODENUM_FEEDBACK_SHANK_RIGHT = self.info["feedback"].index("shank_right")
+
+        # Initiate GaitPhase subclasses
+        self.my_GP_left = GaitPhase(datarate=self.info["datarate"])
+        self.my_GP_right = GaitPhase(datarate=self.info["datarate"])
+
+        # Initiate variables
+        self.iteration = 0
+        self.Feedback_Left = 0
+        self.Feedback_Right = 0
+        self.feedback_left_TimeSinceFeedbackStarted = 0
+        self.feedback_right_TimeSinceFeedbackStarted = 0
+        self.feedback_left_active = False
+        self.feedback_right_active = False
+        self.left_fsa = FootSagittalAngle()
+        self.right_fsa = FootSagittalAngle()
 
     ###########################################################
     # CHECK NODE CONNECTIONS
-    # Make sure all the nodes needed for sensing and feedback
-    # are present before starting the app. 
-    # 
-    # If you do not need to check for feedback nodes, you can 
-    # comment or delete this function. The BaseApp will ensure
-    # the correct number of sensing nodes are present and 
-    # throw an exception if they are not. 
     ###########################################################
-    # def check_status(self):
-    #     sensors_count = self.get_sensors_count()
-    #     feedback_count = self.get_feedback_count()
-    #     logging.debug("config pulse length {}".format(self.info["pulse_length"]))
-    #     err_msg = ""
-    #     if sensors_count < len(self.info['sensors']):
-    #         err_msg += "App requires {} sensors but only {} are connected".format(
-    #                 len(self.info['sensors']), sensors_count)
-    #     if self.config['feedback_enabled'] and feedback_count < len(self.info['feedback']):
-    #         err_msg += "App require {} feedback but only {} are connected".format(
-    #                 len(self.info['feedback']), feedback_count)
-    #     if err_msg != "":
-    #         return False, err_msg
-    #     return True, "Now running Angle Template App"
+    def check_status(self):
+        sensors_count = self.get_sensors_count()
+        feedback_count = self.get_feedback_count()
+        err_msg = ""
+        if sensors_count < len(self.info["sensors"]):
+            err_msg += "Algorithm requires {} sensors but only {} are connected".format(
+                len(self.info["sensors"]), sensors_count
+            )
+        if feedback_count < len(self.info["feedback"]):
+            err_msg += "Algorithm require {} feedback but only {} are connected".format(
+                len(self.info["feedback"]), feedback_count
+            )
+        if err_msg != "":
+            return False, err_msg
+        return True, "Now app is running"
 
-    
-    #############################################################
-    # UPON STARTING THE APP
-    # If you have anything that needs to happen before the app starts 
-    # collecting data, you can uncomment the following lines
-    # and add the code in there. This function will be called before the
-    # run_in_loop() function below. 
-    #############################################################
-    # def on_start_event(self, start_time):
-    #     print("In On Start Event: {start_time}")
-
-    #############################################################
+    ###########################################################
     # RUN APP IN LOOP
-    #############################################################
+    ###########################################################
     def run_in_loop(self):
-        #GET RAW SENSOR DATA
-        data = self.my_sage.get_next_data()        
+        data = self.my_sage.get_next_data()
 
-        #Create Annotations to be passed to the chart
-        time_now = self.iteration / self.info["datarate"]  # time in seconds
-        annotations = ""
-        if math.isclose(5, time_now, rel_tol= 0.1):
-            annotations = {"x": str(5), "y": '.9', "xref": 'x', "yref": 'paper', "text": 'Look here!'}
+        # Compute sagittal foot angles via FootSagittalAngle estimators (Will be 0 the first time due to calibration)
+        left_foot_data = data[self.NODENUM_SENSOR_FOOT_LEFT]
+        right_foot_data = data[self.NODENUM_SENSOR_FOOT_RIGHT]
 
-        # Create custom user defined string based on the time being less than 10 seconds
-        user_defined_status = ""
-        if time_now < 10:
-            user_defined_status = "Please Start Moving."
+        self.left_fsa.update_FSA(left_foot_data)
+        self.right_fsa.update_FSA(right_foot_data)
 
+        # Compute gait phases
+        self.my_GP_left.update_gaitphase(left_foot_data)
+        self.my_GP_right.update_gaitphase(right_foot_data)
 
-        # Create Audio Feedback string
-        audio_feedback = ""
-        if self.config["audio_prompts_enabled"]:
-            audio_feedback = "Around the World"
+        # Add time from 1 timestep to timers
+        self.feedback_left_TimeSinceFeedbackStarted += 1 / self.DATARATE
+        self.feedback_right_TimeSinceFeedbackStarted += 1 / self.DATARATE
 
-        # Example Feedback Logic and Call
-        if self.config["feedback_enabled"]:
-            if is_prime(Int(time_now)) and self.get_sensors_count() > 0:
-                # Example of how to send vibration to a FEEDBACK node (this is usually done)
-                self.toggle_sensor_vibration(sensorNodeNum=self.sensor_node, duration = 1, pulse_strength = 4, feedback_state = False)
-                self.toggle_feedback_vibration(sensorNodeNum=self.feedback_node, duration = 1, pulse_strength = 4, feedback_state = True)
-                user_defined_status = "Lucky You! (This Second is a prime number) (Vibrating Sensor Node!)"
-            elif is_prime(Int(time_now)) and Int(time_now) % 5 == 0:
-                # Example of how to send vibration to a FEEDBACK & SENSOR node (this is usually done)
-                self.toggle_sensor_vibration(sensorNodeNum=self.sensor_node, duration = 1, pulse_strength = 4, feedback_state = True)
-                self.toggle_feedback_vibration(sensorNodeNum=self.feedback_node, duration = 1, pulse_strength = 4, feedback_state = True)
-                user_defined_status = "Oh No! Prime number and divisible by 5! (Vibrating ALL Nodes!)"
-            else:                
-                # Example of how to turn off all vibration
-                self.toggle_sensor_vibration(sensorNodeNum=self.sensor_node, duration = 1, pulse_strength = 4, feedback_state = False)
-                self.toggle_feedback_vibration(sensorNodeNum=self.feedback_node, duration = 1, pulse_strength = 4, feedback_state = False)
-                user_defined_status = "Phew! Safe Number (No Vibration)"
-        
-        else:
-            #Turn off Vibration
-            self.toggle_sensor_vibration(sensorNodeNum=self.feedback_node, duration = 1, pulse_strength = 4, feedback_state = False)
+        # Compute foot angular velocities in the sagittal plane
+        left_foot_sag_ang_vel = left_foot_data["GyroX"]
+        right_foot_sag_ang_vel = right_foot_data["GyroX"]
 
-        
-        #CREATE CUSTOM DATA PACKET
+        if self.config["left_feedback_enabled"]:
+            self.Feedback_Left = self.give_feedback(
+                self.my_GP_left,
+                self.NODENUM_FEEDBACK_SHANK_LEFT,
+                self.feedback_left_TimeSinceFeedbackStarted,
+            )
+
+        if self.config["right_feedback_enabled"]:
+            self.Feedback_Right = self.give_feedback(
+                self.my_GP_right,
+                self.NODENUM_FEEDBACK_SHANK_RIGHT,
+                self.feedback_right_TimeSinceFeedbackStarted,
+            )
+
+        time_now = self.iteration / self.DATARATE  # time in seconds
+
         my_data = {
-            "time": [time_now],                
-                'example_int': [1],
-                # This is an exmaple of how you can grab the value from the app configuration
-                # and store pass it to be stored in the data file (as a user field).
-                'example_bool': [self.config["audio_prompts_enabled"]],   
-                'user_defined_status': [user_defined_status],
-                'feedback_enabled': [self.config["feedback_enabled"]],
-                'audio_prompts_enabled': [self.config["audio_prompts_enabled"]],
-                "annotations": [annotations],
-                'audio_feedback': [audio_feedback]
-                }
+            "time": [time_now],
+            "Left_Foot_Sag_Ang_Vel": [left_foot_sag_ang_vel],
+            "Left_Foot_Sag_Angle": [self.left_fsa.normalized_angle],
+            "Gait_Phase_Left": [self.my_GP_left.gaitphase.value],
+            "Right_Foot_Sag_Ang_Vel": [right_foot_sag_ang_vel],
+            "Right_Foot_Sag_Angle": [self.right_fsa.normalized_angle],
+            "Gait_Phase_Right": [self.my_GP_right.gaitphase.value],
+            "Feedback_Left": [self.Feedback_Left],
+            "Feedback_Right": [self.Feedback_Right],
+        }
 
-
-        # SAVE DATA
-        self.my_sage.save_data(data, my_data)
-
-        # STREAM DATA
-        self.my_sage.send_stream_data(data, my_data)
-
-        # Increment iteration count
+        # Increment and save data
         self.iteration += 1
+        self.my_sage.save_data(data, my_data)
+        self.my_sage.send_stream_data(data, my_data)
+        return True
 
-        # If you want to stop the app on some condition, you can add login in to return a False value. 
-        # This will stop the app and move to the post processing state.
-        if self.time_limit != None:
-            if self.time_limit > time_now: 
-                return True
+    ###########################################################
+    # MANAGE FEEDBACK FOR APP
+    ###########################################################
+    def give_feedback(self, gait_phase_obj, node_num, time_since_start):
+        is_left = node_num == self.NODENUM_FEEDBACK_SHANK_LEFT
+        is_right = node_num == self.NODENUM_FEEDBACK_SHANK_RIGHT
+        if not (is_left or is_right):
+            raise ValueError("Unknown feedback node {}".format(node_num))
+
+        feedback_active = (
+            self.feedback_left_active if is_left else self.feedback_right_active
+        )
+
+        should_feedback = False
+        if self.config["whenFeedback"] == "Early, Middle and Late stance":
+            # Note: Do not provide feedback during swing gait phase
+            if (
+                gait_phase_obj.gaitphase_old != gait_phase_obj.gaitphase
+                and gait_phase_obj.gaitphase != STANCE.SWING
+            ):
+                should_feedback = True
+        else:
+            if (
+                gait_phase_obj.gaitphase_old == STANCE.SWING
+                and gait_phase_obj.gaitphase == STANCE.EARLY
+            ):
+                should_feedback = True
+
+        if should_feedback:
+            self.toggle_feedback(
+                node_num, duration=self.PULSE_LENGTH, feedback_state=True
+            )
+            if is_left:
+                self.feedback_left_TimeSinceFeedbackStarted = 0
+                self.feedback_left_active = True
             else:
-                return False
+                self.feedback_right_TimeSinceFeedbackStarted = 0
+                self.feedback_right_active = True
+            return FEEDBACK_ON
 
-        else: 
-            return True
+        if feedback_active and time_since_start > self.PULSE_LENGTH:
+            self.toggle_feedback(node_num, feedback_state=False)
+            if is_left:
+                self.feedback_left_active = False
+            else:
+                self.feedback_right_active = False
+            return FEEDBACK_OFF
 
-    
+        return FEEDBACK_ON if feedback_active else FEEDBACK_OFF
 
-    
-
-    #############################################################
-    # Toggle Feedback
-    # This function is used to toggle the feedback on and off for 
-    # any given node. You can also change the feedback intensity
-    # by passing in a value to the pulse_strength field. 
-    #############################################################
-    def toggle_sensor_vibration(self, sensorNodeNum=0, duration = 1, pulse_strength = 4, feedback_state = False):
+    def toggle_feedback(self, feedbackNode=0, duration=1, feedback_state=False):
         if feedback_state:
-            self.my_sage.sensor_vibration_on(sensorNodeNum, duration, strength=pulse_strength)
+            self.my_sage.feedback_on(feedbackNode, duration)
         else:
-            self.my_sage.sensor_vibration_off(sensorNodeNum)
-
-    def toggle_feedback_vibration(self, feedbackNode=0, duration = 1, pulse_strength = 4, feedback_state = False):
-        if feedback_state:
-            self.my_sage.feedback_vibration_on(feedbackNode, duration, strength=pulse_strength)
-            
-        else:
-            self.my_sage.feedback_vibration_off(feedbackNode)
-
-    #############################################################
-    # UPON STOPPING THE APP
-    # If you have anything that needs to happen after the app stops, 
-    # you can uncomment the following lines and add the code in there.
-    # This function will be called after the data file is saved and 
-    # can be read back in for reporting purposes if needed.
-    #############################################################
-    def on_stop_event(self, stop_time):
-
-        # This will show in the Notification Box that overlays the app settings.
-        self.logger.info("App Finished Running! You can use this to display summary information, or give custom status update during post-processing.")
+            self.my_sage.feedback_off(feedbackNode)

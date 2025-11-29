@@ -1,15 +1,42 @@
 {
-  "user_guide_file": "Template App Guide.pdf",
-  "app_name": "Template App",
-  "app_version": "0_0",
-  "app_id": "000",
-  "version_id": "00000",
-  "validated_version_range": [
-    "3.20.1",
-    "4.1.0"
-  ],
-  "app_description": "This is a template app. Put the real app description here.",
+  "user_guide_file": "Gait Phase Feedback 2 App Guide.pdf",
+  "app_name": "Gait Phase Feedback 2",
+  "app_description": "Compute foot angles and foot velocities in the sagittal plane of both feet and provide feedback during the gait phase. Feedback starts when gait transitions from swing to stance and lasts for the Feedback Pulse Length. <br><br>Nodes Required: 4 <br> -Sensing (2): foot_left (top, switch pointing forward), foot_right (top, switch pointing forward) <br> -Feedback (2): feedback shank_left, feedback shank_right",
+  "app_id": "012",
+  "app_version": "0_3",
+  "version_id": "01203",
   "parameters_setting": [
+    [
+      "Feedback Setting",
+      {
+        "source": "left_feedback_enabled",
+        "title": "Left Foot Feedback On?",
+        "type": "bool",
+        "description": "Enable/Disable feedback"
+      },
+      {
+        "source": "right_feedback_enabled",
+        "title": "Right Foot Feedback On?",
+        "type": "bool",
+        "description": "Enable/Disable feedback"
+      },
+      {
+        "source": "whenFeedback",
+        "title": "When to Give Feedback?",
+        "type": "combo",
+        "validation": [
+          "Early stance",
+          "Early, Middle and Late stance"
+        ],
+        "description": "Specify when to give feedback"
+      },
+      {
+        "source": "pulse_length",
+        "title": "Feedback Pulse Length (sec)",
+        "type": "float",
+        "description": "The duration of the feedback in seconds"
+      }
+    ],
     [
       "Save Options",
       {
@@ -19,31 +46,9 @@
         "validation": [
           "csv",
           "h5",
-          "xlsx",
-          "none"
+          "xlsx"
         ],
         "description": "Save file in specified format"
-      }
-    ],
-    [
-      "Test Settings",
-      {
-        "source": "feedback_enabled",
-        "title": "Feedback On",
-        "type": "bool",
-        "description": "Enable/Disable feedback"
-      },
-      {
-        "source": "audio_prompts_enabled",
-        "title": "Enable Audio Prompts",
-        "type": "bool",
-        "description": "Enable audio prompts such as 'turn your head to the left' is said."
-      },
-      {
-        "source": "stop_time",
-        "title": "Time Limit",
-        "type": "int",
-        "description": "If the app should stop after a certain time limit, enter that amount here. A '0' or empty field will indicate no time limit."
       }
     ]
   ],
@@ -54,46 +59,53 @@
       "size": 1
     },
     {
-      "name": "example_int",
+      "name": "Left_Foot_Sag_Ang_Vel",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Left_Foot_Sag_Angle",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Gait_Phase_Left",
       "data_type": "int",
       "size": 1
     },
     {
-      "name": "example_bool",
-      "data_type": "bool",
+      "name": "Right_Foot_Sag_Ang_Vel",
+      "data_type": "float",
       "size": 1
     },
     {
-      "name": "feedback_enabled",
-      "data_type": "bool",
+      "name": "Right_Foot_Sag_Angle",
+      "data_type": "float",
       "size": 1
     },
     {
-      "name": "audio_prompts_enabled",
-      "data_type": "bool",
+      "name": "Gait_Phase_Right",
+      "data_type": "int",
       "size": 1
     },
     {
-      "name": "user_defined_status",
-      "data_type": "str",
+      "name": "Feedback_Left",
+      "data_type": "int",
       "size": 1
     },
     {
-      "name": "annotations",
-      "data_type": "str",
-      "size": 1
-    },
-    {
-      "name": "audio_feedback",
-      "data_type": "str",
+      "name": "Feedback_Right",
+      "data_type": "int",
       "size": 1
     }
   ],
   "sensors": [
-    "sensor"
+    "foot_left",
+    "foot_right"
   ],
   "feedback": [
-    "feedback"
+    "shank_left",
+    "shank_right"
   ],
   "datarate": 100
 }
